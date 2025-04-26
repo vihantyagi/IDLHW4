@@ -24,13 +24,14 @@ class ScaledDotProductAttention:
         :return: Output matrix of shape (N, ..., H, L, Ev)
         """
         # TODO: Implement forward pass
-        # Store inputs for backward pass
+
+        # Storing for backward pass
         self.Q = Q
         self.K = K
         self.V = V
         self.mask = mask
         
-        # Calculate scaling factor (sqrt of dimension E)
+        # scaling factor 
         d_k = K.shape[-1]
         scaling_factor = np.sqrt(d_k)
         
@@ -62,16 +63,18 @@ class ScaledDotProductAttention:
         # TODO: Implement backward pass
         # Calculate gradients for V: (N, ..., H, S, Ev)
         # (N, ..., H, L, S).T @ (N, ..., H, L, Ev) -> (N, ..., H, S, Ev) 
-        # Transpose attention_scores to swap L and S dimensions
-        attention_scores_transpose = np.transpose(self.attention_scores, 
-                                                (*range(self.attention_scores.ndim-2), 
-                                                 self.attention_scores.ndim-1, 
-                                                 self.attention_scores.ndim-2))
+        # Use the transpose of stored softmax output to swap last two dimensions 
+
+        # attention_scores_transpose = np.transpose(self.attention_scores, 
+        #                                         (*range(self.attention_scores.ndim-2), 
+        #                                          self.attention_scores.ndim-1, 
+        #                                          self.attention_scores.ndim-2))
+        
         d_V = np.matmul(np.transpose(self.attention_scores, 
                                     (*range(self.attention_scores.ndim-2), 
                                      self.attention_scores.ndim-1, 
-                                     self.attention_scores.ndim-2)), 
-                       d_output)
+                                     self.attention_scores.ndim-2)),
+                                     d_output)
         
         # Calculate gradients for attention scores
         # (N, ..., H, L, Ev) @ (N, ..., H, Ev, S) -> (N, ..., H, L, S)
@@ -104,5 +107,6 @@ class ScaledDotProductAttention:
                                      d_scaled_dot_product.ndim-2)), 
                        self.Q)
         
+        # Return gradients for Q, K, V
         return d_Q, d_K, d_V
 

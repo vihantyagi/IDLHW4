@@ -23,13 +23,11 @@ class Softmax:
         # TODO: Implement forward pass
         # Compute the softmax in a numerically stable way
         # Apply it to the dimension specified by the `dim` parameter
+        # refer writeup for equations
         
-        # Subtract max for numerical stability
         Z_shifted = Z - np.max(Z, axis=self.dim, keepdims=True)
         exp_Z = np.exp(Z_shifted)
-        # Sum along the specified dimension
         sum_exp_Z = np.sum(exp_Z, axis=self.dim, keepdims=True)
-        # Compute softmax
         self.A = exp_Z / sum_exp_Z
         
         return self.A
@@ -39,47 +37,42 @@ class Softmax:
         :param dLdA: Gradient of loss wrt output
         :return: Gradient of loss with respect to activation input
         """
-        # For the special case when input is 2D and dim=-1 (last dimension)
-        if len(self.A.shape) == 2 and self.dim == -1:
-            N, C = self.A.shape
-            dLdZ = np.zeros_like(self.A)
-            
-            for i in range(N):
-                # Create the Jacobian matrix for this example
-                J = np.diag(self.A[i]) - np.outer(self.A[i], self.A[i])
-                # Apply chain rule: dL/dZ = dL/dA * dA/dZ
-                dLdZ[i] = np.dot(dLdA[i], J)
-                
-            return dLdZ
-        
-        # For the general case
-        dLdZ = np.zeros_like(dLdA)
-        
-        # Handle arbitrary dimensions by looping through all elements
-        # except along the softmax dimension
+        # TODO: Implement backward pass
+
+        # Get the shape of the input
+        shape = self.A.shape
+        # Find the dimension along which softmax was applied
         if self.dim < 0:
-            dim = len(self.A.shape) + self.dim
+            dim = len(shape) + self.dim
         else:
             dim = self.dim
-        
-        # Get iterator over all indices except along softmax dimension
-        indices = np.ndindex(*(self.A.shape[:dim] + self.A.shape[dim+1:]))
-        
-        for idx in indices:
-            # Insert softmax dimension to get full index
-            full_idx = idx[:dim] + (slice(None),) + idx[dim:]
-            
-            # Get softmax outputs and gradients for this slice
-            A_slice = self.A[full_idx]
-            dLdA_slice = dLdA[full_idx]
-            
-            # Create Jacobian matrix for this slice
-            J = np.diag(A_slice) - np.outer(A_slice, A_slice)
-            
-            # Apply chain rule
-            dLdZ[full_idx] = np.dot(dLdA_slice, J)
-        
-        return dLdZ
- 
+        C = shape[dim]
 
-    
+        # Reshape input to 2D
+        if len(shape) > 2:
+            A_trans = np.moveaxis(self.A, dim, -1)
+            dLdA_trans = np.moveaxis(dLdA, dim, -1)
+            flat_shape = (-1, C)
+            A_flat = A_trans.reshape(flat_shape)
+            dLdA_flat = dLdA_trans.reshape(flat_shape)
+        else:
+            A_flat = self.A
+            dLdA_flat = dLdA
+            flat_shape = shape
+
+        N, _ = A_flat.shape
+        dLdZ_flat = np.zeros_like(A_flat)
+        for i in range(N):
+            # Jacobian J = diag(a_i) - a_i outer a_i
+            J = np.diag(A_flat[i]) - np.outer(A_flat[i], A_flat[i])
+            # Chain rule: dL/dZ_i = dL/dA_i · J
+            dLdZ_flat[i] = np.dot(dLdA_flat[i], J)
+
+        # Reshape back to original dimensions if necessary
+        if len(shape) > 2:
+            dLdZ_trans = dLdZ_flat.reshape(A_trans.shape)
+            dLdZ = np.moveaxis(dLdZ_trans, -1, dim)
+        else:
+            dLdZ = dLdZ_flat
+
+        return dLdZ

@@ -23,6 +23,7 @@ class MultiHeadAttention:
         self.attention = ScaledDotProductAttention()
         
         # Initialize linear layers
+        #  embed_dim -> embed_dim
         self.q_proj = Linear(embed_dim, embed_dim)
         self.k_proj = Linear(embed_dim, embed_dim)
         self.v_proj = Linear(embed_dim, embed_dim)
@@ -74,7 +75,7 @@ class MultiHeadAttention:
         # (N, S, embed_dim) -> (N, num_heads, S, embed_dim // num_heads)
         v = self._split_heads(v)
         
-        # Save split heads for backward pass
+        # Saving for backward pass
         self.q_split = q
         self.k_split = k
         self.v_split = v
@@ -89,14 +90,14 @@ class MultiHeadAttention:
         # (N, num_heads, L, embed_dim // num_heads)
         attn_outputs = self.attention.forward(q, k, v, mask)
         
-        # Save attention outputs for backward pass
+        # Saving attn_outputs for backward pass
         self.attn_outputs = attn_outputs
 
         # Merge the attention outputs
         # (N, num_heads, L, embed_dim // num_heads) -> (N, L, embed_dim)
         attn_output = self._concat_heads(attn_outputs)
         
-        # Save concatenated output for backward pass
+        # Saving concat_output for backward pass
         self.concat_output = attn_output
 
         # Project the attention outputs
@@ -110,6 +111,9 @@ class MultiHeadAttention:
         :param d_output: Gradient of loss wrt output of shape (N, L, E)
         :return: Gradient of loss wrt input query, key, value of shapes (N, L, E), (N, S, E), (N, S, E)
         """
+
+        # TODO: Implement backward pass 
+
         # Backpropagate through the output projection
         # (N, L, embed_dim) -> (N, L, embed_dim)
         d_attn_output = self.out_proj.backward(d_output)
@@ -147,6 +151,9 @@ class MultiHeadAttention:
         :param attn_mask: (L, S)
         :return: (N, H, L, S)
         """
+
+        # TODO: Implement merge masks
+
         # Initialize mask
         N = self.N
         H = self.num_heads
@@ -198,12 +205,15 @@ class MultiHeadAttention:
         :param x: (N, num_heads, L, embed_dim // num_heads)
         :return: (N, L, embed_dim)
         """
+
+        # TODO: Implement concat heads
+
         N = x.shape[0]
         H = x.shape[1]
         L = x.shape[2]
         head_dim = x.shape[3]
         
-        # Transpose: (N, num_heads, L, head_dim) -> (N, L, num_heads, head_dim)
+        # Transpose: (N, num_heads, L, embed_dim // num_heads) -> (N, L, num_heads, embed_dim // num_heads)
         x = np.transpose(x, (0, 2, 1, 3))
         
         # Reshape: (N, L, num_heads, head_dim) -> (N, L, embed_dim)

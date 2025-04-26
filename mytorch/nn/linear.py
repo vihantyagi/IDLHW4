@@ -45,14 +45,13 @@ class Linear:
 
         # TODO: Implement backward pass
         # Compute gradients (refer to the equations in the writeup)
-        # Compute gradients
+
         # dL/dA = dL/dZ @ W
         self.dLdA = np.matmul(dLdZ, self.W)
         
-        # dL/dW = dL/dZ^T @ A
-        # Reshape dLdZ to handle arbitrary batch dimensions
         dLdZ_reshaped = dLdZ.reshape(-1, dLdZ.shape[-1])
         A_reshaped = self.A.reshape(-1, self.A.shape[-1])
+        # dL/dW = dL/dZ^T @ A
         self.dLdW = np.matmul(dLdZ_reshaped.T, A_reshaped)
         
         # dL/db = sum of dL/dZ across all dimensions except the last
