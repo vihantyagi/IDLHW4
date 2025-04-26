@@ -65,11 +65,6 @@ class ScaledDotProductAttention:
         # (N, ..., H, L, S).T @ (N, ..., H, L, Ev) -> (N, ..., H, S, Ev) 
         # Use the transpose of stored softmax output to swap last two dimensions 
 
-        # attention_scores_transpose = np.transpose(self.attention_scores, 
-        #                                         (*range(self.attention_scores.ndim-2), 
-        #                                          self.attention_scores.ndim-1, 
-        #                                          self.attention_scores.ndim-2))
-        
         d_V = np.matmul(np.transpose(self.attention_scores, 
                                     (*range(self.attention_scores.ndim-2), 
                                      self.attention_scores.ndim-1, 
