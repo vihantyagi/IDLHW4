@@ -57,7 +57,7 @@ class PositionalEncoding(nn.Module):
         pe[0, :, 0::2] = torch.sin(position * div_term)
         # Use cosine for odd indices (if dimension is odd, this will handle it correctly)
         if d_model % 2 == 1:  # odd dimension
-            pe[0, :, 1::2] = torch.cos(position * div_term[:-(d_model//2)])
+            pe[0, :, 1::2] = torch.cos(position * div_term[:d_model//2])
         else:  # even dimension
             pe[0, :, 1::2] = torch.cos(position * div_term)
         

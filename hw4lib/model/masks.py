@@ -26,21 +26,13 @@ def PadMask(padded_input, input_lengths):
             - non-padding positions are marked with False.
     """
     # TODO: Implement PadMask
-    # Get batch size and sequence length
+
     batch_size = padded_input.shape[0]
     seq_len = padded_input.shape[1]
     
-    # Create a position tensor (N, T) that counts up to T for each batch
-    # [0, 1, 2, ..., T-1] repeated N times
+    # Creating a position tensor (N, T) = (batch_size, seq_len)
     positions = torch.arange(seq_len, device=padded_input.device).expand(batch_size, seq_len)
-    
-    # Create a length tensor (N, 1) that represents each sequence's actual length
-    # Expand it to (N, T) for comparison with positions
     lengths_expanded = input_lengths.unsqueeze(1).expand(batch_size, seq_len)
-    
-    # Create the mask by comparing positions to lengths
-    # True where position >= length (padding positions)
-    # False where position < length (non-padding positions)
     mask = positions >= lengths_expanded
     
     return mask
@@ -73,23 +65,12 @@ def CausalMask(padded_input):
     # Get sequence length
     seq_len = padded_input.shape[1]
     
-    # Create a matrix of shape (T, T) where each element (i, j) is True if j > i
-    # This creates an upper triangular matrix (excluding diagonal) filled with True
-    # The diagonal and lower triangular part will be filled with False
-    
-    # First, create position indices
+    # Creating a matrix of shape (T, T) where each element (i, j) is True if j > i 
     i = torch.arange(seq_len, device=padded_input.device)
     j = torch.arange(seq_len, device=padded_input.device)
-    
-    # Create a matrix where each element (i, j) is j
     j_indices = j.unsqueeze(0).expand(seq_len, seq_len)
-    
-    # Create a matrix where each element (i, j) is i
     i_indices = i.unsqueeze(1).expand(seq_len, seq_len)
-    
-    # Create the upper triangular mask
-    # True where j > i (future positions - cannot attend to)
-    # False where j <= i (current and past positions - can attend to)
+    # creating an upper triangular matrix filled with true. 
     mask = j_indices > i_indices
     
     return mask
