@@ -25,14 +25,14 @@ class ASRTrainer(BaseTrainer):
     4. Language model shallow fusion during recognition
 
     Implementation Tasks:
-    - TODO: Initialize CE and CTC loss in _init_
+    - TODO: Initialize CE and CTC loss in __init__
     - TODO: Implement key parts of the training loop in _train_epoch
     - TODO: Implement recognition functionality in recognize
     - TODO: Implement key parts of the validation loop in _validate_epoch
     - TODO: Implement key parts of the full training loop in train
 
     Implementation Notes:
-    1. For _init_:
+    1. For __init__:
         - Initialize CrossEntropyLoss with appropriate padding index and label smoothing
         - Initialize CTCLoss if ctc_weight > 0
         
@@ -57,15 +57,17 @@ class ASRTrainer(BaseTrainer):
     def __init__(self, model, tokenizer, config, run_name, config_file, device=None):
         super().__init__(model, tokenizer, config, run_name, config_file, device)
 
-        # TODO: Implement the _init_ method
+        # TODO: Implement the __init__ method
         
         # TODO: Initialize CE loss
         # How would you set the ignore_index? 
+        ignore_index = self.tokenizer.pad_token_id
         # Use value in config to set the label_smoothing argument
+        label_smoothing = self.config['loss'].get('label_smoothing', 0.0)
         self.ce_criterion = nn.CrossEntropyLoss(
-            ignore_index=self.tokenizer.pad_id,
-            label_smoothing=self.config['loss'].get('label_smoothing', 0.0)
-        )
+            ignore_index = ignore_index,
+            label_smoothing = label_smoothing
+            )
         
         # TODO: Initialize CTC loss if needed
         # You can use the pad token id as the blank index
@@ -77,9 +79,6 @@ class ASRTrainer(BaseTrainer):
                 zero_infinity=True
             )
         
-        
-
-
     def _train_epoch(self, dataloader):
         """
         Train for one epoch.
@@ -90,7 +89,6 @@ class ASRTrainer(BaseTrainer):
             Tuple[Dict[str, float], Dict[str, torch.Tensor]]: Training metrics and attention weights
         """
         # TODO: In-fill the _train_epoch method
-        
     
         # Initialize training variables
         self.model.train()
@@ -106,40 +104,39 @@ class ASRTrainer(BaseTrainer):
 
         for i, batch in enumerate(dataloader):
             # TODO: Unpack batch and move to device
-            padded_features, padded_shifted, padded_golden, feat_lengths, transcript_lengths = batch
-            
-            feats = padded_features.to(self.device)
-            targets_shifted = padded_shifted.to(self.device) 
-            targets_golden = padded_golden.to(self.device)   
+            feats, targets_shifted, targets_golden, feat_lengths, transcript_lengths = batch
+            feats = feats.to(self.device)
+            targets_shifted = targets_shifted.to(self.device)
+            targets_golden = targets_golden.to(self.device)
             feat_lengths = feat_lengths.to(self.device)
+            transcript_lengths = transcript_lengths.to(self.device)
 
-            if transcript_lengths is not None:
-                transcript_lengths = transcript_lengths.to(self.device)
-            
             with torch.autocast(device_type=self.device, dtype=torch.float16):
                 # TODO: get raw predictions and attention weights and ctc inputs from model
-                seq_out, curr_att, ctc_inputs = self.model(feats, targets_shifted, feat_lengths,transcript_lengths)
+                seq_out, curr_att, ctc_inputs = self.model(
+                    feats,
+                    targets_shifted,
+                    feat_lengths,
+                    transcript_lengths
+                )
                 
                 # Update running_att with the latest attention weights
                 running_att = curr_att
                 
                 # TODO: Calculate CE loss
-                ce_loss = self.ce_criterion(seq_out.view(-1, self.tokenizer.vocab_size), targets_golden.view(-1))
+                ce_loss = self.ce_criterion(
+                    seq_out.permute(0, 2, 1),  # (B, C, T)
+                    targets_golden               # (B, T)
+                )
                 
                 
                 # TODO: Calculate CTC loss if needed
                 if self.ctc_weight > 0:
-                    ctc_log_probs = ctc_inputs['log_probs']
-                    
-                    ctc_input_lengths = ctc_inputs['lengths']
-
-                    ctc_input_lengths = ctc_input_lengths.to(self.device)
-                    
                     ctc_loss = self.ctc_criterion(
-                    log_probs=ctc_log_probs,          # Use tensor from dict, NO transpose needed here
-                    targets=targets_golden,           # Golden targets (N, S_target)
-                    input_lengths=ctc_input_lengths,  # Use lengths from dict (N,)
-                    target_lengths=transcript_lengths # Lengths of golden targets (N,)
+                        ctc_inputs['log_probs'],    # (T, B, C)
+                        targets_golden,              # (B, S) padded
+                        ctc_inputs['lengths'],       # (B,)
+                        transcript_lengths           # (B,)
                     )
                     loss = ce_loss + self.ctc_weight * ctc_loss
                 else:
@@ -222,33 +219,19 @@ class ASRTrainer(BaseTrainer):
             Tuple[Dict[str, float], List[Dict[str, Any]]]: Validation metrics and recognition results
         """
         # TODO: In-fill the _validate_epoch method
-        val_config_params = self.config.get('validation', {})
-        validation_recog_config = {
-            'num_batches': val_config_params.get('num_batches', None), # Ensure this resolves to None for full validation
-            'beam_width': val_config_params.get('beam_width', 1),   # Set beam width (e.g., 10 or from config)
-            'temperature': val_config_params.get('temperature', 1.0),
-            'repeat_penalty': val_config_params.get('repeat_penalty', 1.0),
-            'lm_weight': val_config_params.get('lm_weight', 0.0),
-            'lm_model': None # Add LM loading if needed
-        }
-        # --- Make absolutely sure num_batches is None to run all ---
-        validation_recog_config['num_batches'] = None
-
-        bw = validation_recog_config['beam_width']
-        config_name = f'validation_{"beam_" + str(bw) if bw > 1 else "greedy"}'
-
+        # Validate for one epoch by generating hypotheses with greedy decoding
+        self.model.eval()
         # TODO: Call recognize
-        results = self.recognize(dataloader,validation_recog_config, config_name)
-        
+        results = self.recognize(dataloader)
+
         # TODO: Extract references and hypotheses from results
-        references = [r['target'] for r in results]
+        references  = [r['target']    for r in results]
         hypotheses = [r['generated'] for r in results]
-        
-        # Calculate metrics on full batch
+
+        # calculate metrics on full batch
         metrics = self._calculate_asr_metrics(references, hypotheses)
-        
         return metrics, results
-    
+
     def train(self, train_dataloader, val_dataloader, epochs: int):
         """
         Full training loop for ASR training.
@@ -265,34 +248,27 @@ class ASRTrainer(BaseTrainer):
             raise ValueError("Optimizer is not initialized, initialize it first!")
         
         # TODO: In-fill the train method
-        
-
+        # Prepare for training
         # Set max transcript length
-        self.text_max_len = max(val_dataloader.dataset.text_max_len, train_dataloader.dataset.text_max_len)
+        self.text_max_len = max(
+            val_dataloader.dataset.text_max_len,
+            train_dataloader.dataset.text_max_len
+        )
+        best_val_cer = self.best_metric if self.best_metric is not None else float('inf')
 
-        # Training loop
-        best_val_loss = float('inf')
-        best_val_wer  = float('inf')
-        best_val_cer  = float('inf')
-        best_val_dist = float('inf')
-
+        # Epoch loop
         for epoch in range(self.current_epoch, self.current_epoch + epochs):
-
             # TODO: Train for one epoch
             train_metrics, train_attn = self._train_epoch(train_dataloader)
-          
             # TODO: Validate
             val_metrics, val_results = self._validate_epoch(val_dataloader)
 
             # Step ReduceLROnPlateau scheduler with validation loss
             if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                 self.scheduler.step(val_metrics['cer'])
-            
+
             # Log metrics
-            metrics = {
-                'train': train_metrics,
-                'val': val_metrics
-            }
+            metrics = {'train': train_metrics, 'val': val_metrics}
             self._log_metrics(metrics, epoch)
 
             # Save attention plots
@@ -315,7 +291,7 @@ class ASRTrainer(BaseTrainer):
                         self._save_attention_plot(train_attn[last_cross_key][0], epoch, "decoder_cross")
             
             # Save generated text
-            self._save_generated_text(val_results, f'val_epoch{epoch}')
+            self._save_generated_text(val_results, f'val_epoch_{epoch}')
             
             # Save checkpoints
             self.save_checkpoint('checkpoint-last-epoch-model.pth')
@@ -323,8 +299,8 @@ class ASRTrainer(BaseTrainer):
             # Check if this is the best model
             if val_metrics['cer'] < best_val_cer:
                 best_val_cer = val_metrics['cer']
-                self.best_metric = val_metrics['cer']
-                self.save_checkpoint('checkpoint-best-metric-model.pth') 
+                self.best_metric = best_val_cer
+                self.save_checkpoint('checkpoint-best-metric-model.pth')
 
             self.current_epoch += 1
                 
@@ -359,7 +335,7 @@ class ASRTrainer(BaseTrainer):
                     }
                 )
                 eval_results[config_name] = results_df
-                self._save_generated_text(results, f'test{config_name}_results')
+                self._save_generated_text(results, f'test_{config_name}_results')
             except Exception as e:
                 print(f"Error evaluating with {config_name} config: {e}")
                 continue
@@ -384,12 +360,11 @@ class ASRTrainer(BaseTrainer):
             List of dictionaries containing recognition results with generated sequences and scores
             (targets included if available)
         """
+
         if max_length is None and not hasattr(self, 'text_max_len'):
             raise ValueError("text_max_len is not set. Please run training loop first or provide a max_length")
         
-        # TODO: In-fill the recognize method
-        
-
+        # Default to greedy search if no config provided
         if recognition_config is None:
             # Default config (greedy search)
             recognition_config = {
@@ -401,52 +376,39 @@ class ASRTrainer(BaseTrainer):
                 'lm_model': None
             }
             config_name = 'greedy'
+        else:
+            config_name = config_name or 'custom'
 
-        elif recognition_config:
-            print(f"\n=== Recognition Configuration ===")
-            print(f"Beam width: {recognition_config.get('beam_width', 1)}")
-            print(f"Using {'beam search' if recognition_config.get('beam_width', 1) > 1 else 'greedy search'}")
-            print(f"Temperature: {recognition_config.get('temperature', 1.0)}")
-            print(f"Repeat penalty: {recognition_config.get('repeat_penalty', 1.0)}")
-            print(f"===========================\n")
-
+        # Prepare LM for shallow fusion, if provided
         if recognition_config.get('lm_model') is not None:
             recognition_config['lm_model'].eval()
             recognition_config['lm_model'].to(self.device)
 
-        # Initialize sequence generator
+        # Initialize generator (score_fn will be set per batch)
         generator = SequenceGenerator(
-            score_fn=None,  # Will be set for each batch
+            score_fn=None,
             tokenizer=self.tokenizer,
             max_length=max_length if max_length is not None else self.text_max_len,
             device=self.device
         )
 
-        # Initialize variables
         self.model.eval()
-        batch_bar = tqdm(total=len(dataloader), dynamic_ncols=True, leave=False, position=0, desc=f"[Recognizing ASR] : {config_name}")
+        batch_bar = tqdm(total=len(dataloader),
+                         dynamic_ncols=True,
+                         leave=False,
+                         position=0,
+                         desc=f"[Recognizing ASR] : {config_name}")
         results = []
 
-        # Run inference
         with torch.inference_mode():
             for i, batch in enumerate(dataloader):
                 # TODO: Unpack batch and move to device
-                if len(batch) == 5:
-                    padded_features, padded_shifted, padded_golden, feat_lengths, transcript_lengths = batch
-                elif len(batch) == 3: # Assuming test might return (feats, None, None, feat_lengths, None) structure adjusted in collate? Or just (feats, feat_lengths)? Check collate_fn output for test set carefully.
-                                      # Let's assume collate_fn returns 5 elements, some are None for test set:
-                     padded_features, _, padded_golden, feat_lengths, _ = batch # Get targets_golden if available, ignore shifted/transcript_lengths for test recognition
-                else:
-                    raise ValueError(f"Unexpected batch format with {len(batch)} elements.")
-      
                 # TODO: Handle both cases where targets may or may not be None (val set v. test set) 
-                feats = padded_features.to(self.device)
-                feat_lengths = feat_lengths.to(self.device)
-                if padded_golden is not None:
-                    targets_golden = padded_golden.to(self.device)
-                else:
-                    targets_golden = None
-                
+                feats, _, targets_golden, feat_lengths, _ = batch
+                feats         = feats.to(self.device)
+                feat_lengths  = feat_lengths.to(self.device)
+                targets_golden = targets_golden.to(self.device) if targets_golden is not None else None
+
                 # TODO: Encode speech features to hidden states
                 encoder_output, pad_mask_src, _, _ = self.model.encode(feats, feat_lengths)
 
@@ -463,59 +425,60 @@ class ASRTrainer(BaseTrainer):
 
                 # TODO: Initialize prompts as a batch of SOS tokens
                 batch_size = feats.size(0)
-                prompts = torch.full((batch_size, 1), self.tokenizer.sos_id, dtype=torch.long, device=self.device)
+                prompts = torch.full((batch_size, 1),
+                                     self.tokenizer.sos_id,
+                                     dtype=torch.long,
+                                     device=self.device)
 
                 # TODO: Generate sequences
-                if recognition_config['beam_width'] > 1:
+                bw = recognition_config['beam_width']
+                temp = recognition_config['temperature']
+                rp = recognition_config['repeat_penalty']
+                if bw > 1:
                     # TODO: If you have implemented beam search, generate sequences using beam search
-                    seqs, scores = generator.generate_beam(
-                        prompts, 
-                        beam_width=recognition_config['beam_width'],
-                        temperature=recognition_config['temperature'],
-                        repeat_penalty=recognition_config['repeat_penalty']
-                    ) # Remove if you implemented the beam search method
-
+                    seqs, scores = generator.generate_beam(prompts,
+                                                           beam_width=bw,
+                                                           temperature=temp,
+                                                           repeat_penalty=rp)
                     # Pick best beam
-                    seqs = seqs[:, 0, :]
+                    seqs   = seqs[:, 0, :]
                     scores = scores[:, 0]
                 else:
                     # TODO: Generate sequences using greedy search
-                    seqs, scores = generator.generate_greedy(
-                        prompts,
-                        temperature=recognition_config['temperature'],
-                        repeat_penalty=recognition_config['repeat_penalty']
-                    )
+                    seqs, scores = generator.generate_greedy(prompts,
+                                                             temperature=temp,
+                                                             repeat_penalty=rp)
 
-                # Clean up
+                # Clean up 
                 del feats, feat_lengths, encoder_output, pad_mask_src, prompts
                 torch.cuda.empty_cache()
 
-                # Post process sequences
-                post_processed_preds = generator.post_process_sequence(seqs, self.tokenizer)
-                
+                # Post-process predictions
+                preds = generator.post_process_sequence(seqs, self.tokenizer)
+
                 # Store results as a list of dictionaries with target and generated sequences and scores
                 if targets_golden is not None:
-                    post_processed_targets = generator.post_process_sequence(targets_golden, self.tokenizer)
-                    for j, (pred, target) in enumerate(zip(post_processed_preds, post_processed_targets)):
+                    tgts = generator.post_process_sequence(targets_golden, self.tokenizer)
+                    for j, (pred, tgt) in enumerate(zip(preds, tgts)):
                         results.append({
-                            'target': self.tokenizer.decode(target.tolist(), skip_special_tokens=True),
+                            'target':    self.tokenizer.decode(tgt.tolist(),   skip_special_tokens=True),
                             'generated': self.tokenizer.decode(pred.tolist(), skip_special_tokens=True),
-                            'score': scores[j].item()
+                            'score':     scores[j].item()
                         })
                 else:
-                    for j, pred in enumerate(post_processed_preds):
+                    for j, pred in enumerate(preds):
                         results.append({
                             'generated': self.tokenizer.decode(pred.tolist(), skip_special_tokens=True),
-                            'score': scores[j].item()
+                            'score':     scores[j].item()
                         })
 
                 batch_bar.update()
-
+                
                 if recognition_config['num_batches'] is not None and i >= recognition_config['num_batches'] - 1:
                     break
 
-            batch_bar.close()
-            return results
+        batch_bar.close()
+        return results
 
     def _get_evaluation_recognition_configs(self, lm_model: Optional[DecoderOnlyTransformer] = None, lm_weight: float = 0.0) -> Dict[str, Dict[str, Any]]:
         """
@@ -592,14 +555,14 @@ class ProgressiveTrainer(ASRTrainer):
     4. Smooth transition to full model training
 
     Implementation Tasks:
-    - Store original model layers in _init_
+    - Store original model layers in __init__
     - Configure model for each stage in configure_stage
     - Implement progressive training loop in progressive_train
     - Handle transition to full training in transition_to_full_training
     - Create data subsets in get_subset_dataloader
 
     Implementation Notes:
-    1. For _init_:
+    1. For __init__:
         - Store original encoder and decoder layers
         - Initialize stage counter
         
@@ -628,7 +591,7 @@ class ProgressiveTrainer(ASRTrainer):
     ##### Stage Configuration
 
     Each stage is defined as a dictionary with the following parameters:
-    python
+    ```python
     {
         'name': str,                        # Name of the training stage
         'epochs': int,                      # Number of epochs to train in this stage
@@ -640,13 +603,13 @@ class ProgressiveTrainer(ASRTrainer):
         'label_smoothing': float,           # Label smoothing value
         'data_subset': float                # Fraction of training data to use (0.0-1.0)
     }
-    
+    ```
     #### Example
     It is best understood by an example. Here is a breakdown of the stages defined below for a model with 6 encoder and 6 decoder layers:
 
     stages = [
                 {
-                    # Initial (1 layers):
+                    # `Initial (1 layers)`:
                     # This stage starts with a model with only 1 encoder and 1 decoder layer.
                     # No freezing or regularization is applied.
                     # It uses 20% of the training data.
@@ -661,7 +624,7 @@ class ProgressiveTrainer(ASRTrainer):
                     'data_subset': 0.2
                 },
                 {
-                    # 2 layers:
+                    # `2 layers`:
                     # This stage increases the number of layers to 2 for both the encoder and decoder.
                     # The previous layer (encoder layer 1 and decoder layer 1) are frozen.
                     # No regularization is applied.
@@ -677,7 +640,7 @@ class ProgressiveTrainer(ASRTrainer):
                     'data_subset': 0.2
                 },
                 {
-                    # 4 layers:
+                    # `4 layers`:
                     # This stage increases the number of layers to 4 for both the encoder and decoder.
                     # The previous layers (encoder layers 1 and 2 and decoder layers 1 and 2) are frozen.
                     # Dropout is set to 0.05 and label smoothing is set to 0.0.
@@ -693,7 +656,7 @@ class ProgressiveTrainer(ASRTrainer):
                     'data_subset': 0.2
                 },
                 {
-                    # All 6 layers:
+                    # `All 6 layers`:
                     # This stage uses all 6 encoder and 6 decoder layers.
                     # The 4 previous layers are frozen and the last 2 layers are trained.
                     # Dropout is set to 0.1 and label smoothing is set to 0.0.
@@ -709,7 +672,7 @@ class ProgressiveTrainer(ASRTrainer):
                     'data_subset': 0.2
                 },
                 {
-                    # Final (with label smoothing):
+                    # `Final (with label smoothing)`:
                     # This stage uses all 6 encoder and 6 decoder layers.
                     # All layers are unfrozen and trained.
                     # Dropout is set to 0.1 and label smoothing is set to 0.1.
@@ -727,13 +690,13 @@ class ProgressiveTrainer(ASRTrainer):
             ]    
 
     ##### Important Notes
-    - Ensure encoder_freeze and decoder_freeze lists match the length of their respective active_layers
-    - data_subset should be between 0 and 1
+    - Ensure `encoder_freeze` and `decoder_freeze` lists match the length of their respective `active_layers`
+    - `data_subset` should be between 0 and 1
     - Stage transitions are handled automatically by the trainer
     - The same optimizer and scheduler are used for all stages so keep that in mind while setting the learning rates and other parameters
     """
-    def _init_(self, model, tokenizer, config, run_name, config_file, device=None):
-        super()._init_(model, tokenizer, config, run_name, config_file, device)
+    def __init__(self, model, tokenizer, config, run_name, config_file, device=None):
+        super().__init__(model, tokenizer, config, run_name, config_file, device)
         self.current_stage = 0
         # Store original layer states
         self.all_encoder_layers = list(self.model.enc_layers)
@@ -915,3 +878,6 @@ class ProgressiveTrainer(ASRTrainer):
         )
         
         return subset_loader
+        
+        
+        
