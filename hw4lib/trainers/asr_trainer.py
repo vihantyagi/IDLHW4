@@ -61,7 +61,7 @@ class ASRTrainer(BaseTrainer):
         
         # TODO: Initialize CE loss
         # How would you set the ignore_index? 
-        ignore_index = self.tokenizer.pad_token_id
+        ignore_index = self.tokenizer.pad_id
         # Use value in config to set the label_smoothing argument
         label_smoothing = self.config['loss'].get('label_smoothing', 0.0)
         self.ce_criterion = nn.CrossEntropyLoss(
