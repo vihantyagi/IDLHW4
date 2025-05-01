@@ -219,10 +219,22 @@ class ASRTrainer(BaseTrainer):
             Tuple[Dict[str, float], List[Dict[str, Any]]]: Validation metrics and recognition results
         """
         # TODO: In-fill the _validate_epoch method
-        # Validate for one epoch by generating hypotheses with greedy decoding
-        self.model.eval()
+
+        # Use validation-time decoding parameters from config
+        val_cfg   = self.config.get('validation', {})
+        beam_w    = val_cfg.get('beam_width', 1)
+        recog_cfg = {
+            'beam_width':     beam_w,
+            'temperature':    val_cfg.get('temperature', 1.0),
+            'repeat_penalty': val_cfg.get('repeat_penalty', 1.0),
+            'lm_weight':      val_cfg.get('lm_weight', 0.0),
+            'lm_model':       None,
+            'num_batches':    val_cfg.get('num_batches', None)
+        }
         # TODO: Call recognize
-        results = self.recognize(dataloader)
+        # name it val_recognition_config_{beam_width}
+        config_name = f"val_recognition_config_{beam_w}"
+        results     = self.recognize(dataloader, recog_cfg, config_name)
 
         # TODO: Extract references and hypotheses from results
         references  = [r['target']    for r in results]
